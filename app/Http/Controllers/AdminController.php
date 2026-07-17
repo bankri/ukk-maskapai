@@ -11,6 +11,7 @@ use App\Models\Flight;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class AdminController extends Controller
@@ -82,18 +83,60 @@ class AdminController extends Controller
 
     public function bookings(Request $request)
     {
-        $bookings = Booking::with([
-            'user',
-            'flight.departureAirport',
-            'flight.arrivalAirport',
-            'flight.airline',
-            'passengers',
-            'payment',
-            'approver',
-        ])
-            ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')->toString()))
+        $validated = $request->validate([
+            'q' => ['nullable', 'string', 'max:100'],
+            'status' => ['nullable', 'in:pending,confirmed,cancelled,completed'],
+            'payment_status' => ['nullable', 'in:pending,paid,failed'],
+            'date_from' => ['nullable', 'date'],
+            'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
+        ]);
+
+        $bookings = Booking::query()
+            ->with([
+                'user',
+                'flight.departureAirport',
+                'flight.arrivalAirport',
+                'flight.airline',
+                'passengers',
+                'payment',
+                'approver',
+                'review',
+            ])
+            ->when(filled($validated['q'] ?? null), function ($query) use ($validated) {
+                $like = '%'.Str::lower(trim($validated['q'])).'%';
+
+                $query->where(function ($search) use ($like) {
+                    $search->whereRaw('LOWER(booking_code) LIKE ?', [$like])
+                        ->orWhereHas('user', fn ($user) => $user
+                            ->whereRaw('LOWER(name) LIKE ?', [$like])
+                            ->orWhereRaw('LOWER(email) LIKE ?', [$like]))
+                        ->orWhereHas('passengers', fn ($passenger) => $passenger
+                            ->whereRaw('LOWER(full_name) LIKE ?', [$like])
+                            ->orWhereRaw('LOWER(identity_number) LIKE ?', [$like]))
+                        ->orWhereHas('flight.departureAirport', fn ($airport) => $airport
+                            ->whereRaw('LOWER(city) LIKE ?', [$like])
+                            ->orWhereRaw('LOWER(iata_code) LIKE ?', [$like]))
+                        ->orWhereHas('flight.arrivalAirport', fn ($airport) => $airport
+                            ->whereRaw('LOWER(city) LIKE ?', [$like])
+                            ->orWhereRaw('LOWER(iata_code) LIKE ?', [$like]));
+                });
+            })
+            ->when(filled($validated['status'] ?? null), function ($query) use ($validated) {
+                if ($validated['status'] === 'completed') {
+                    $query->whereNotNull('completed_at');
+                } else {
+                    $query->where('status', $validated['status']);
+                }
+            })
+            ->when(filled($validated['payment_status'] ?? null), fn ($query) => $query
+                ->whereHas('payment', fn ($payment) => $payment->where('payment_status', $validated['payment_status'])))
+            ->when(filled($validated['date_from'] ?? null), fn ($query) => $query
+                ->whereHas('flight', fn ($flight) => $flight->whereDate('departure_datetime', '>=', $validated['date_from'])))
+            ->when(filled($validated['date_to'] ?? null), fn ($query) => $query
+                ->whereHas('flight', fn ($flight) => $flight->whereDate('departure_datetime', '<=', $validated['date_to'])))
             ->latest()
-            ->get();
+            ->paginate(10)
+            ->withQueryString();
 
         return view('admin.bookings.index', compact('bookings'));
     }
@@ -119,9 +162,9 @@ class AdminController extends Controller
                 return;
             }
 
-            if ($fromStatus === 'cancelled') {
+            if ($fromStatus === 'cancelled' || $booking->completed_at) {
                 throw ValidationException::withMessages([
-                    'status' => 'Booking yang sudah ditolak atau dibatalkan tidak dapat dibuka kembali.',
+                    'status' => 'Booking yang sudah dibatalkan atau selesai tidak dapat diubah kembali.',
                 ]);
             }
 
@@ -166,5 +209,37 @@ class AdminController extends Controller
         }, 3);
 
         return back()->with('success', 'Status booking berhasil diperbarui.');
+    }
+
+    public function completeBooking(Request $request, Booking $booking)
+    {
+        DB::transaction(function () use ($request, $booking) {
+            $booking = Booking::query()
+                ->with('payment')
+                ->lockForUpdate()
+                ->findOrFail($booking->id);
+
+            if ($booking->status !== 'confirmed' || $booking->payment?->payment_status !== 'paid') {
+                throw ValidationException::withMessages([
+                    'status' => 'Booking hanya dapat diselesaikan setelah diterima dan berstatus Terbayar.',
+                ]);
+            }
+
+            if ($booking->completed_at) {
+                return;
+            }
+
+            $booking->update(['completed_at' => now()]);
+
+            BookingStatusHistory::create([
+                'booking_id' => $booking->id,
+                'changed_by' => $request->user()->id,
+                'from_status' => 'confirmed',
+                'to_status' => 'completed',
+                'note' => 'Perjalanan ditandai selesai oleh admin. User sekarang dapat memberikan rating.',
+            ]);
+        }, 3);
+
+        return back()->with('success', 'Booking ditandai selesai. Form rating kini tersedia untuk user.');
     }
 }

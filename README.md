@@ -1,19 +1,20 @@
 # Z-Airlines Booking System
 
-Aplikasi booking penerbangan berbasis Laravel dengan alur persetujuan admin, pembayaran Midtrans Snap, PostgreSQL Supabase, reCAPTCHA v2, data maksimal lima penumpang, reservasi kursi per penerbangan, dan history perubahan status.
+Aplikasi booking penerbangan Laravel dengan approval admin, pembayaran Midtrans Snap, PostgreSQL Supabase, captcha login dan register, verifikasi email, filter booking, history status, serta rating perjalanan.
 
-## Alur booking
+## Alur aplikasi
 
-1. User login dan memilih penerbangan.
-2. User mengajukan booking untuk satu sampai lima penumpang.
-3. Data nama, gender, tanggal lahir, jenis identitas, nomor identitas, dan kursi disimpan dalam satu transaksi database.
-4. Jumlah kursi penerbangan langsung direservasi agar tidak terjadi overselling.
-5. Admin menerima atau menolak request melalui dashboard.
-6. Tombol pembayaran Midtrans hanya muncul setelah admin menerima booking.
-7. Webhook Midtrans memverifikasi signature, nominal, dan status transaksi sebelum memperbarui database.
-8. Semua perubahan booking dan pembayaran dicatat di `booking_status_histories`.
+1. User mendaftar dan menyelesaikan reCAPTCHA.
+2. Sistem mengirim email verifikasi melalui SMTP.
+3. Setelah email terverifikasi, user dapat mengajukan booking untuk satu sampai lima penumpang.
+4. Admin menerima atau menolak request booking.
+5. Booking yang diterima dapat dibayar melalui Midtrans.
+6. Webhook dan Get Status API Midtrans memperbarui pembayaran menjadi `paid` atau **Terbayar**.
+7. Admin menandai perjalanan selesai setelah booking terbayar.
+8. User dapat memberikan satu rating dan ulasan.
+9. Rating terbaru tampil di landing page, sedangkan history booking pribadi tetap hanya terlihat oleh pemilik akun dan admin.
 
-## Persiapan lokal
+## Instalasi
 
 ```bash
 cp .env.example .env
@@ -25,44 +26,57 @@ npm run build
 php artisan serve
 ```
 
-## Supabase
+Layout publik dan admin memakai asset Tailwind hasil build Vite. Jangan menambahkan kembali `cdn.tailwindcss.com`. Saat mengembangkan UI, jalankan:
 
-Gunakan PostgreSQL Session Pooler dari menu **Connect** di dashboard Supabase.
+```bash
+npm run dev
+```
+
+## Supabase PostgreSQL
+
+Gunakan Session Pooler Supabase:
 
 ```env
 DB_CONNECTION=pgsql
-DB_URL=postgres://postgres.PROJECT_REF:PASSWORD@REGION.pooler.supabase.com:5432/postgres
+DB_HOST=aws-0-ap-southeast-1.pooler.supabase.com
+DB_PORT=6543
+DB_DATABASE=postgres
+DB_USERNAME=postgres.PROJECT_REF
+DB_PASSWORD=YOUR_DATABASE_PASSWORD
 DB_SSLMODE=require
 ```
 
-Lalu jalankan:
+Kemudian:
 
 ```bash
 php artisan config:clear
 php artisan migrate
 ```
 
-## Midtrans
+## Gmail SMTP dengan App Password
 
-Masukkan Server Key dan Client Key dari Midtrans Sandbox:
+Aktifkan 2-Step Verification pada akun Google, buat App Password, lalu isi:
 
 ```env
-MIDTRANS_SERVER_KEY=SB-Mid-server-...
-MIDTRANS_CLIENT_KEY=SB-Mid-client-...
-MIDTRANS_IS_PRODUCTION=false
+MAIL_MAILER=smtp
+MAIL_SCHEME=smtp
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USERNAME=your-email@gmail.com
+MAIL_PASSWORD="YOUR_16_CHARACTER_APP_PASSWORD"
+MAIL_FROM_ADDRESS="your-email@gmail.com"
+MAIL_FROM_NAME="${APP_NAME}"
 ```
 
-Atur **Payment Notification URL** di Midtrans menjadi:
+Password yang dipakai adalah App Password, bukan password utama akun Google. Setelah mengubah `.env`:
 
-```text
-https://domain-aplikasi.com/payments/midtrans/notification
+```bash
+php artisan config:clear
 ```
-
-Endpoint webhook harus dapat diakses publik melalui HTTPS dan tidak boleh berada di balik halaman login.
 
 ## Google reCAPTCHA v2
 
-Buat key reCAPTCHA v2 checkbox, lalu isi:
+Daftarkan `localhost` untuk pengembangan dan domain asli untuk deployment:
 
 ```env
 RECAPTCHA_ENABLED=true
@@ -70,29 +84,57 @@ RECAPTCHA_SITE_KEY=...
 RECAPTCHA_SECRET_KEY=...
 ```
 
-Saat pengembangan tanpa key, biarkan `RECAPTCHA_ENABLED=false`.
+Captcha diwajibkan pada form login dan register ketika konfigurasi di atas aktif.
 
-## Status
+## Midtrans
 
-### Booking
+Untuk Sandbox, gunakan key dengan prefix `SB-Mid`:
 
-- `pending`: request menunggu admin
-- `confirmed`: request diterima dan dapat dibayar
-- `cancelled`: request ditolak atau dibatalkan
+```env
+MIDTRANS_SERVER_KEY=SB-Mid-server-...
+MIDTRANS_CLIENT_KEY=SB-Mid-client-...
+MIDTRANS_IS_PRODUCTION=false
+```
 
-### Payment
+Atur Payment Notification URL:
 
-- `pending`: belum lunas
-- `paid`: settlement atau capture yang valid
-- `failed`: deny, cancel, expire, atau failure
+```text
+https://domain-aplikasi.com/payments/midtrans/notification
+```
+
+Pada localhost, webhook Midtrans biasanya tidak dapat menjangkau aplikasi. Karena itu halaman booking menyediakan tombol **Perbarui Status**, dan finish callback juga memanggil Get Status API Midtrans agar status dapat berubah menjadi **Terbayar**.
+
+## Filter booking
+
+Admin dan user dapat mencari berdasarkan:
+
+- kode booking
+- nama user atau penumpang
+- email dan nomor identitas pada admin
+- kota atau kode IATA
+- status booking
+- status pembayaran
+- rentang tanggal keberangkatan
+
+## Status perjalanan dan rating
+
+Database tetap memakai status booking `pending`, `confirmed`, dan `cancelled`. Penyelesaian perjalanan dicatat pada `completed_at` agar kompatibel dengan PostgreSQL Supabase tanpa mengubah enum lama.
+
+Rating hanya dapat dibuat apabila:
+
+- booking diterima admin
+- pembayaran berstatus `paid`
+- admin telah menandai perjalanan selesai
+- booking belum pernah diberi rating
 
 ## Pemeriksaan sebelum production
 
 ```bash
+npm run build
 php artisan config:cache
 php artisan route:cache
 php artisan view:cache
 php artisan test
 ```
 
-Pastikan `APP_DEBUG=false`, gunakan key Midtrans Production, aktifkan reCAPTCHA, gunakan HTTPS, dan batasi akses role admin.
+Gunakan `APP_DEBUG=false`, HTTPS, key Midtrans Production, reCAPTCHA aktif, dan jangan commit file `.env` atau credential asli ke GitHub.

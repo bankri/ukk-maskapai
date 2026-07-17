@@ -15,7 +15,7 @@ class PaymentController extends Controller
 {
     public function show(Booking $booking, MidtransService $midtrans)
     {
-        abort_unless($booking->user_id === request()->user()->id, 403);
+        $this->authorizeBooking($booking);
 
         $booking->load([
             'user',
@@ -33,7 +33,7 @@ class PaymentController extends Controller
 
         if ($booking->payment?->payment_status === 'paid') {
             return redirect()->route('bookings.index')
-                ->with('success', 'Booking ini sudah lunas.');
+                ->with('success', 'Booking ini sudah berstatus Terbayar.');
         }
 
         if (! $booking->payment) {
@@ -62,12 +62,57 @@ class PaymentController extends Controller
         ]);
     }
 
-    public function finish(Booking $booking)
+    public function finish(Booking $booking, MidtransService $midtrans)
     {
-        abort_unless($booking->user_id === request()->user()->id, 403);
+        $this->authorizeBooking($booking);
+        $booking->load('payment');
 
-        return redirect()->route('bookings.index')
-            ->with('success', 'Proses pembayaran selesai. Status akan diperbarui otomatis setelah notifikasi Midtrans diterima.');
+        if (! $booking->payment) {
+            return redirect()->route('bookings.index')->with('error', 'Data pembayaran tidak ditemukan.');
+        }
+
+        try {
+            $payload = $midtrans->getTransactionStatus($booking->payment->order_id);
+            $status = $this->persistPaymentStatus($booking->payment, $payload, 'Get Status API Midtrans');
+        } catch (RuntimeException $exception) {
+            report($exception);
+
+            return redirect()->route('bookings.index')
+                ->with('error', 'Pembayaran telah ditutup, tetapi status belum dapat disinkronkan. Gunakan tombol Perbarui Status.');
+        }
+
+        return redirect()->route('bookings.index')->with(
+            $status === 'paid' ? 'success' : 'error',
+            $status === 'paid'
+                ? 'Pembayaran berhasil diverifikasi. Status booking sekarang Terbayar.'
+                : 'Status pembayaran masih menunggu atau belum berhasil. Silakan perbarui kembali beberapa saat lagi.'
+        );
+    }
+
+    public function sync(Booking $booking, MidtransService $midtrans)
+    {
+        $this->authorizeBooking($booking);
+        $booking->load('payment');
+
+        if (! $booking->payment) {
+            return back()->with('error', 'Data pembayaran tidak ditemukan.');
+        }
+
+        try {
+            $payload = $midtrans->getTransactionStatus($booking->payment->order_id);
+            $status = $this->persistPaymentStatus($booking->payment, $payload, 'Sinkronisasi manual Midtrans');
+        } catch (RuntimeException $exception) {
+            report($exception);
+
+            return back()->with('error', $exception->getMessage());
+        }
+
+        return back()->with(
+            $status === 'paid' ? 'success' : 'error',
+            $status === 'paid'
+                ? 'Status pembayaran berhasil diperbarui menjadi Terbayar.'
+                : 'Status pembayaran saat ini: '.ucfirst($status).'.'
+        );
     }
 
     public function notification(Request $request, MidtransService $midtrans): JsonResponse
@@ -84,14 +129,27 @@ class PaymentController extends Controller
             return response()->json(['message' => 'Payment not found'], 404);
         }
 
-        $incomingAmount = (int) round(((float) $payload['gross_amount']) * 100);
-        $expectedAmount = (int) round(((float) $payment->amount) * 100);
-
-        if ($incomingAmount !== $expectedAmount) {
-            return response()->json(['message' => 'Amount mismatch'], 422);
+        try {
+            $this->persistPaymentStatus($payment, $payload, 'Webhook Midtrans');
+        } catch (RuntimeException $exception) {
+            return response()->json(['message' => $exception->getMessage()], 422);
         }
 
-        DB::transaction(function () use ($payment, $payload) {
+        return response()->json(['message' => 'Notification processed']);
+    }
+
+    private function persistPaymentStatus(Payment $payment, array $payload, string $source): string
+    {
+        if (isset($payload['gross_amount'])) {
+            $incomingAmount = (int) round(((float) $payload['gross_amount']) * 100);
+            $expectedAmount = (int) round(((float) $payment->amount) * 100);
+
+            if ($incomingAmount !== $expectedAmount) {
+                throw new RuntimeException('Nominal transaksi Midtrans tidak sesuai dengan booking.');
+            }
+        }
+
+        return DB::transaction(function () use ($payment, $payload, $source) {
             $payment = Payment::query()->lockForUpdate()->findOrFail($payment->id);
             $previousStatus = $payment->payment_status;
             $transactionStatus = (string) ($payload['transaction_status'] ?? 'unknown');
@@ -124,15 +182,20 @@ class PaymentController extends Controller
                     'changed_by' => null,
                     'from_status' => 'payment_'.$previousStatus,
                     'to_status' => 'payment_'.$newStatus,
-                    'note' => 'Status pembayaran diperbarui melalui webhook Midtrans.',
+                    'note' => $source.' memperbarui status pembayaran menjadi '.($newStatus === 'paid' ? 'Terbayar' : ucfirst($newStatus)).'.',
                     'metadata' => [
                         'transaction_status' => $transactionStatus,
                         'transaction_id' => $payload['transaction_id'] ?? null,
                     ],
                 ]);
             }
-        }, 3);
 
-        return response()->json(['message' => 'Notification processed']);
+            return $newStatus;
+        }, 3);
+    }
+
+    private function authorizeBooking(Booking $booking): void
+    {
+        abort_unless($booking->user_id === request()->user()->id, 403);
     }
 }
