@@ -38,6 +38,7 @@ class BookingController extends Controller
             ->findOrFail($flightId);
 
         abort_if($flight->departure_datetime->isPast(), 422, 'Penerbangan sudah tidak dapat dipesan.');
+        abort_if($flight->available_seats < 1, 422, 'Kursi penerbangan sudah habis.');
 
         return view('bookings.create', compact('flight'));
     }
