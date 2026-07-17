@@ -91,7 +91,7 @@ class AdminController extends Controller
             'payment',
             'approver',
         ])
-            ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')))
+            ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')->toString()))
             ->latest()
             ->get();
 
