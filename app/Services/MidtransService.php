@@ -11,12 +11,7 @@ class MidtransService
 {
     public function createSnapTransaction(Booking $booking): array
     {
-        $serverKey = (string) config('services.midtrans.server_key');
-
-        if ($serverKey === '') {
-            throw new RuntimeException('MIDTRANS_SERVER_KEY belum dikonfigurasi.');
-        }
-
+        $serverKey = $this->serverKey();
         $booking->loadMissing(['user', 'flight.departureAirport', 'flight.arrivalAirport', 'payment']);
         $payment = $booking->payment;
 
@@ -24,12 +19,7 @@ class MidtransService
             throw new RuntimeException('Data pembayaran booking tidak ditemukan.');
         }
 
-        $endpoint = config('services.midtrans.is_production')
-            ? 'https://app.midtrans.com/snap/v1/transactions'
-            : 'https://app.sandbox.midtrans.com/snap/v1/transactions';
-
         $routeName = $booking->flight->departureAirport->city.' - '.$booking->flight->arrivalAirport->city;
-
         $payload = [
             'transaction_details' => [
                 'order_id' => $payment->order_id,
@@ -62,14 +52,10 @@ class MidtransService
                 ->withBasicAuth($serverKey, '')
                 ->timeout(20)
                 ->retry(2, 500)
-                ->post($endpoint, $payload)
+                ->post($this->snapBaseUrl().'/snap/v1/transactions', $payload)
                 ->throw();
         } catch (RequestException $exception) {
-            $message = $exception->response?->json('error_messages.0')
-                ?? $exception->response?->body()
-                ?? $exception->getMessage();
-
-            throw new RuntimeException('Midtrans menolak transaksi: '.$message, previous: $exception);
+            throw new RuntimeException('Midtrans menolak transaksi: '.$this->errorMessage($exception), previous: $exception);
         }
 
         $token = $response->json('token');
@@ -84,11 +70,24 @@ class MidtransService
         ];
     }
 
+    public function getTransactionStatus(string $orderId): array
+    {
+        try {
+            return Http::acceptJson()
+                ->withBasicAuth($this->serverKey(), '')
+                ->timeout(15)
+                ->retry(2, 400)
+                ->get($this->apiBaseUrl().'/v2/'.rawurlencode($orderId).'/status')
+                ->throw()
+                ->json();
+        } catch (RequestException $exception) {
+            throw new RuntimeException('Status Midtrans belum dapat diperbarui: '.$this->errorMessage($exception), previous: $exception);
+        }
+    }
+
     public function snapScriptUrl(): string
     {
-        return config('services.midtrans.is_production')
-            ? 'https://app.midtrans.com/snap/snap.js'
-            : 'https://app.sandbox.midtrans.com/snap/snap.js';
+        return $this->snapBaseUrl().'/snap/snap.js';
     }
 
     public function signatureIsValid(array $payload): bool
@@ -103,9 +102,42 @@ class MidtransService
 
         $expected = hash(
             'sha512',
-            $payload['order_id'].$payload['status_code'].$payload['gross_amount'].config('services.midtrans.server_key')
+            $payload['order_id'].$payload['status_code'].$payload['gross_amount'].$this->serverKey()
         );
 
         return hash_equals($expected, (string) $payload['signature_key']);
+    }
+
+    private function serverKey(): string
+    {
+        $serverKey = (string) config('services.midtrans.server_key');
+
+        if ($serverKey === '') {
+            throw new RuntimeException('MIDTRANS_SERVER_KEY belum dikonfigurasi.');
+        }
+
+        return $serverKey;
+    }
+
+    private function snapBaseUrl(): string
+    {
+        return config('services.midtrans.is_production')
+            ? 'https://app.midtrans.com'
+            : 'https://app.sandbox.midtrans.com';
+    }
+
+    private function apiBaseUrl(): string
+    {
+        return config('services.midtrans.is_production')
+            ? 'https://api.midtrans.com'
+            : 'https://api.sandbox.midtrans.com';
+    }
+
+    private function errorMessage(RequestException $exception): string
+    {
+        return $exception->response?->json('error_messages.0')
+            ?? $exception->response?->json('status_message')
+            ?? $exception->response?->body()
+            ?? $exception->getMessage();
     }
 }
