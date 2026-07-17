@@ -116,6 +116,17 @@ class MidtransService
             throw new RuntimeException('MIDTRANS_SERVER_KEY belum dikonfigurasi.');
         }
 
+        $isProduction = (bool) config('services.midtrans.is_production');
+        $isSandboxKey = str_starts_with($serverKey, 'SB-');
+
+        if (! $isProduction && ! $isSandboxKey) {
+            throw new RuntimeException('MIDTRANS_IS_PRODUCTION=false membutuhkan Sandbox Server Key yang berawalan SB-Mid-server.');
+        }
+
+        if ($isProduction && $isSandboxKey) {
+            throw new RuntimeException('MIDTRANS_IS_PRODUCTION=true tidak dapat memakai Sandbox Server Key.');
+        }
+
         return $serverKey;
     }
 
