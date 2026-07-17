@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\Booking;
-use App\Models\BookingStatusHistory;
 use App\Models\Flight;
 use App\Models\Passenger;
 use App\Models\Payment;
@@ -19,10 +18,8 @@ class BookingController extends Controller
     {
         $validated = $request->validate([
             'q' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', 'in:pending,confirmed,cancelled,completed'],
+            'status' => ['nullable', 'in:pending,confirmed,cancelled'],
             'payment_status' => ['nullable', 'in:pending,paid,failed'],
-            'date_from' => ['nullable', 'date'],
-            'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
         ]);
 
         $bookings = Booking::query()
@@ -32,8 +29,8 @@ class BookingController extends Controller
                 'flight.airline',
                 'passengers',
                 'payment',
-                'histories.actor',
-                'review',
+                // 'histories.actor',  // Disabled - model belum ada
+                // 'review',           // Disabled - tabel booking_reviews belum ada
             ])
             ->where('user_id', Auth::id())
             ->when(filled($validated['q'] ?? null), function ($query) use ($validated) {
@@ -52,18 +49,10 @@ class BookingController extends Controller
                 });
             })
             ->when(filled($validated['status'] ?? null), function ($query) use ($validated) {
-                if ($validated['status'] === 'completed') {
-                    $query->whereNotNull('completed_at');
-                } else {
-                    $query->where('status', $validated['status']);
-                }
+                $query->where('status', $validated['status']);
             })
             ->when(filled($validated['payment_status'] ?? null), fn ($query) => $query
                 ->whereHas('payment', fn ($payment) => $payment->where('payment_status', $validated['payment_status'])))
-            ->when(filled($validated['date_from'] ?? null), fn ($query) => $query
-                ->whereHas('flight', fn ($flight) => $flight->whereDate('departure_datetime', '>=', $validated['date_from'])))
-            ->when(filled($validated['date_to'] ?? null), fn ($query) => $query
-                ->whereHas('flight', fn ($flight) => $flight->whereDate('departure_datetime', '<=', $validated['date_to'])))
             ->orderByDesc('created_at')
             ->paginate(8)
             ->withQueryString();
@@ -90,25 +79,15 @@ class BookingController extends Controller
             'passengers.*.full_name' => ['required', 'string', 'max:120'],
             'passengers.*.gender' => ['required', 'in:male,female'],
             'passengers.*.birth_date' => ['required', 'date', 'before:today'],
-            'passengers.*.identity_type' => ['required', 'in:ktp,passport,other'],
-            'passengers.*.identity_number' => ['required', 'string', 'max:64', 'distinct'],
-            'passengers.*.seat_number' => ['required', 'regex:/^[1-9][0-9]?[A-F]$/i', 'distinct'],
+            'passengers.*.identity_number' => ['required', 'string', 'max:64'],
+            'passengers.*.seat_number' => ['required', 'string', 'max:10'],
         ], [
             'passengers.max' => 'Maksimal 5 penumpang dalam satu booking.',
-            'passengers.*.seat_number.regex' => 'Format kursi harus seperti 1A, 12C, atau 20F.',
         ]);
 
-        $passengers = collect($validated['passengers'])
-            ->map(function (array $passenger) {
-                $passenger['seat_number'] = Str::upper(trim($passenger['seat_number']));
-                $passenger['identity_number'] = trim($passenger['identity_number']);
-
-                return $passenger;
-            });
-
-        $booking = DB::transaction(function () use ($validated, $passengers) {
+        $booking = DB::transaction(function () use ($validated) {
             $flight = Flight::query()->lockForUpdate()->findOrFail($validated['flight_id']);
-            $totalPassengers = $passengers->count();
+            $totalPassengers = count($validated['passengers']);
 
             if ($flight->departure_datetime->isPast()) {
                 throw ValidationException::withMessages([
@@ -119,22 +98,6 @@ class BookingController extends Controller
             if ($flight->available_seats < $totalPassengers) {
                 throw ValidationException::withMessages([
                     'passengers' => 'Kursi tersedia tidak mencukupi jumlah penumpang.',
-                ]);
-            }
-
-            $requestedSeats = $passengers->pluck('seat_number')->all();
-            $occupiedSeats = Passenger::query()
-                ->whereIn('seat_number', $requestedSeats)
-                ->whereHas('booking', function ($query) use ($flight) {
-                    $query->where('flight_id', $flight->id)
-                        ->where('status', '!=', 'cancelled');
-                })
-                ->pluck('seat_number')
-                ->all();
-
-            if ($occupiedSeats !== []) {
-                throw ValidationException::withMessages([
-                    'passengers' => 'Kursi '.implode(', ', $occupiedSeats).' sudah digunakan pada penerbangan ini.',
                 ]);
             }
 
@@ -153,46 +116,32 @@ class BookingController extends Controller
                 'status' => 'pending',
             ]);
 
-            foreach ($passengers as $passenger) {
+            foreach ($validated['passengers'] as $passenger) {
                 Passenger::create([
                     'booking_id' => $booking->id,
                     'full_name' => trim($passenger['full_name']),
                     'gender' => $passenger['gender'],
                     'birth_date' => $passenger['birth_date'],
-                    'passport_number' => $passenger['identity_number'],
-                    'identity_type' => $passenger['identity_type'],
-                    'identity_number' => $passenger['identity_number'],
-                    'seat_number' => $passenger['seat_number'],
+                    'passport_number' => trim($passenger['identity_number']),
+                    'seat_number' => Str::upper(trim($passenger['seat_number'])),
                 ]);
             }
 
-            $orderId = $bookingCode.'-'.now()->format('YmdHis');
-
             Payment::create([
                 'booking_id' => $booking->id,
-                'payment_method' => 'midtrans',
+                'payment_method' => 'bank_transfer',
                 'amount' => $totalPrice,
                 'payment_status' => 'pending',
-                'transaction_code' => $orderId,
-                'order_id' => $orderId,
+                'transaction_code' => 'TRX'.Str::upper(Str::random(10)),
             ]);
 
             $flight->decrement('available_seats', $totalPassengers);
-
-            BookingStatusHistory::create([
-                'booking_id' => $booking->id,
-                'changed_by' => Auth::id(),
-                'from_status' => null,
-                'to_status' => 'pending',
-                'note' => 'Booking diajukan oleh user dan menunggu persetujuan admin.',
-                'metadata' => ['reserved_seats' => $requestedSeats],
-            ]);
 
             return $booking;
         }, 3);
 
         return redirect()
             ->route('bookings.index')
-            ->with('success', "Booking {$booking->booking_code} berhasil diajukan. Tunggu persetujuan admin sebelum membayar.");
+            ->with('success', "Booking {$booking->booking_code} berhasil dibuat.");
     }
 }

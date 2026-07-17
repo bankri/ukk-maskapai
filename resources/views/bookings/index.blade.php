@@ -8,9 +8,9 @@
         <div>
             <p class="text-blue-600 font-bold mb-2">RIWAYAT PERJALANAN</p>
             <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900">Booking Saya</h1>
-            <p class="text-slate-500 mt-2">Cari dan pantau approval, pembayaran, perjalanan, rating, serta history.</p>
+            <p class="text-slate-500 mt-2">Cari dan pantau approval, pembayaran, perjalanan, serta history.</p>
         </div>
-        <a href="{{ route('home') }}#cari-penerbangan" class="inline-flex justify-center items-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-blue-700"><i class="fas fa-search"></i>Cari Penerbangan</a>
+        <a href="{{ route('home') }}#cari-penerbangan" class="inline-flex justify-center items-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-blue-700"><i class="fas fa-search"></i> Cari Penerbangan</a>
     </div>
 
     <form method="GET" class="bg-white border border-slate-100 rounded-2xl shadow-sm p-5 mb-7">
@@ -142,17 +142,19 @@
                             </p>
                             <div class="flex flex-col sm:flex-row gap-2">
                                 @if($booking->isPayable())
-                                    <a href="{{ route('payments.show', $booking) }}" class="inline-flex justify-center items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700"><i class="fas fa-credit-card"></i>Bayar dengan Midtrans</a>
+                                    <a href="{{ route('payments.show', $booking) }}" class="inline-flex justify-center items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700"><i class="fas fa-credit-card"></i> Bayar dengan Midtrans</a>
                                 @endif
                                 @if($booking->status === 'confirmed' && $booking->payment && ! $isPaid)
                                     <form method="POST" action="{{ route('payments.sync', $booking) }}">
                                         @csrf
-                                        <button class="w-full inline-flex justify-center items-center gap-2 border border-blue-200 text-blue-700 px-5 py-3 rounded-xl font-bold hover:bg-blue-50"><i class="fas fa-rotate"></i>Perbarui Status</button>
+                                        <button class="w-full inline-flex justify-center items-center gap-2 border border-blue-200 text-blue-700 px-5 py-3 rounded-xl font-bold hover:bg-blue-50"><i class="fas fa-rotate"></i> Perbarui Status</button>
                                     </form>
                                 @endif
                             </div>
                         </div>
 
+                        {{-- FITUR REVIEW & HISTORY DITUTUP SEMENTARA AGAR TIDAK ERROR --}}
+                        {{-- 
                         @if($booking->canBeReviewed())
                             <form method="POST" action="{{ route('bookings.review', $booking) }}" class="mt-6 border-t border-slate-100 pt-6">
                                 @csrf
@@ -174,30 +176,24 @@
                                     </div>
                                 </div>
                             </form>
-                        @elseif($booking->review)
-                            <div class="mt-6 border-t border-slate-100 pt-6">
-                                <div class="rounded-2xl bg-amber-50 border border-amber-100 p-5">
-                                    <div class="text-amber-400">@for($star = 1; $star <= 5; $star++)<i class="{{ $star <= $booking->review->rating ? 'fas' : 'far' }} fa-star"></i>@endfor</div>
-                                    <p class="font-bold text-slate-900 mt-2">Rating Anda: {{ $booking->review->rating }}/5</p>
-                                    @if($booking->review->comment)<p class="text-slate-600 mt-2">“{{ $booking->review->comment }}”</p>@endif
+                        @endif
+
+                        @if($booking->histories->isNotEmpty())
+                            <div class="bg-slate-50 border-t px-5 sm:px-7 py-5 mt-6">
+                                <p class="text-sm font-bold text-slate-800 mb-3">History</p>
+                                <div class="space-y-3">
+                                    @foreach($booking->histories->take(8) as $history)
+                                        <div class="flex gap-3 text-sm">
+                                            <span class="mt-1.5 w-2 h-2 rounded-full bg-blue-500 shrink-0"></span>
+                                            <div><p class="text-slate-700">{{ $history->note ?: $history->to_status }}</p><p class="text-xs text-slate-400">{{ $history->created_at->format('d M Y, H:i') }}{{ $history->actor ? ' · '.$history->actor->name : '' }}</p></div>
+                                        </div>
+                                    @endforeach
                                 </div>
                             </div>
                         @endif
-                    </div>
+                        --}}
 
-                    @if($booking->histories->isNotEmpty())
-                        <div class="bg-slate-50 border-t px-5 sm:px-7 py-5">
-                            <p class="text-sm font-bold text-slate-800 mb-3">History</p>
-                            <div class="space-y-3">
-                                @foreach($booking->histories->take(8) as $history)
-                                    <div class="flex gap-3 text-sm">
-                                        <span class="mt-1.5 w-2 h-2 rounded-full bg-blue-500 shrink-0"></span>
-                                        <div><p class="text-slate-700">{{ $history->note ?: $history->to_status }}</p><p class="text-xs text-slate-400">{{ $history->created_at->format('d M Y, H:i') }}{{ $history->actor ? ' · '.$history->actor->name : '' }}</p></div>
-                                    </div>
-                                @endforeach
-                            </div>
-                        </div>
-                    @endif
+                    </div>
                 </article>
             @endforeach
         </div>

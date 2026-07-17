@@ -20,20 +20,12 @@ class HomeController extends Controller
             ->get();
 
         $airports = Airport::orderBy('city')->get();
-        $reviews = BookingReview::with([
-            'user',
-            'booking.flight.departureAirport',
-            'booking.flight.arrivalAirport',
-        ])
-            ->whereNotNull('comment')
-            ->latest()
-            ->limit(6)
-            ->get();
-
-        $averageRating = round((float) BookingReview::avg('rating'), 1);
-        $totalReviews = BookingReview::count();
-        $completedTrips = Booking::whereNotNull('completed_at')->count();
-
+        // Temporary disable reviews - tabel belum ada
+$reviews = collect([]);
+$averageRating = 0;
+$totalReviews = 0;
+// Temporary - kolom completed_at belum ada
+$completedTrips = 0;
         return view('home.index', compact(
             'flights',
             'airports',

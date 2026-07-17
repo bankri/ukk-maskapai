@@ -6,7 +6,6 @@ use App\Models\Airline;
 use App\Models\Airport;
 use App\Models\Airplane;
 use App\Models\Booking;
-use App\Models\BookingStatusHistory;
 use App\Models\Flight;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -99,8 +98,8 @@ class AdminController extends Controller
                 'flight.airline',
                 'passengers',
                 'payment',
-                'approver',
-                'review',
+                // 'approver', // Disabled - relationship belum ada
+                // 'review',   // Disabled - tabel booking_reviews belum ada
             ])
             ->when(filled($validated['q'] ?? null), function ($query) use ($validated) {
                 $like = '%'.Str::lower(trim($validated['q'])).'%';
@@ -197,15 +196,7 @@ class AdminController extends Controller
 
             $booking->save();
 
-            BookingStatusHistory::create([
-                'booking_id' => $booking->id,
-                'changed_by' => $request->user()->id,
-                'from_status' => $fromStatus,
-                'to_status' => $targetStatus,
-                'note' => $targetStatus === 'confirmed'
-                    ? 'Booking diterima admin dan siap dibayar melalui Midtrans.'
-                    : 'Booking ditolak atau dibatalkan admin: '.$validated['rejected_reason'],
-            ]);
+            // BookingStatusHistory::create([ ... ]); // Disabled sementara agar tidak error jika tabel belum ada
         }, 3);
 
         return back()->with('success', 'Status booking berhasil diperbarui.');
@@ -231,15 +222,9 @@ class AdminController extends Controller
 
             $booking->update(['completed_at' => now()]);
 
-            BookingStatusHistory::create([
-                'booking_id' => $booking->id,
-                'changed_by' => $request->user()->id,
-                'from_status' => 'confirmed',
-                'to_status' => 'completed',
-                'note' => 'Perjalanan ditandai selesai oleh admin. User sekarang dapat memberikan rating.',
-            ]);
+            // BookingStatusHistory::create([ ... ]); // Disabled sementara agar tidak error jika tabel belum ada
         }, 3);
 
-        return back()->with('success', 'Booking ditandai selesai. Form rating kini tersedia untuk user.');
+        return back()->with('success', 'Booking ditandai selesai.');
     }
 }

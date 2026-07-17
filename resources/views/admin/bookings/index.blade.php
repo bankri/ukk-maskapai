@@ -99,12 +99,15 @@
                     </div>
                 </details>
 
+                {{-- BAGIAN REVIEW DITUTUP SEMENTARA - tabel booking_reviews belum ada --}}
+                {{-- 
                 @if($booking->review)
                     <div class="mb-6 rounded-xl border border-amber-100 bg-amber-50 p-4">
                         <div class="text-amber-400">@for($star = 1; $star <= 5; $star++)<i class="{{ $star <= $booking->review->rating ? 'fas' : 'far' }} fa-star"></i>@endfor</div>
                         <p class="text-sm text-slate-700 mt-2"><strong>Rating user {{ $booking->review->rating }}/5.</strong> {{ $booking->review->comment }}</p>
                     </div>
                 @endif
+                --}}
 
                 @if($booking->status === 'pending')
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 border-t pt-5">
