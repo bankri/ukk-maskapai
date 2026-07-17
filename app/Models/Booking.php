@@ -18,6 +18,7 @@ class Booking extends Model
         'status',
         'approved_by',
         'approved_at',
+        'completed_at',
         'rejected_reason',
         'seats_released_at',
     ];
@@ -25,6 +26,7 @@ class Booking extends Model
     protected $casts = [
         'total_price' => 'decimal:2',
         'approved_at' => 'datetime',
+        'completed_at' => 'datetime',
         'seats_released_at' => 'datetime',
     ];
 
@@ -58,10 +60,23 @@ class Booking extends Model
         return $this->hasMany(BookingStatusHistory::class)->latest();
     }
 
+    public function review()
+    {
+        return $this->hasOne(BookingReview::class);
+    }
+
     public function isPayable(): bool
     {
         return $this->status === 'confirmed'
+            && ! $this->completed_at
             && $this->payment
             && $this->payment->payment_status === 'pending';
+    }
+
+    public function canBeReviewed(): bool
+    {
+        return (bool) $this->completed_at
+            && $this->payment?->payment_status === 'paid'
+            && ! $this->review;
     }
 }
