@@ -15,19 +15,58 @@ use Illuminate\Validation\ValidationException;
 
 class BookingController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $bookings = Booking::with([
-            'flight.departureAirport',
-            'flight.arrivalAirport',
-            'flight.airline',
-            'passengers',
-            'payment',
-            'histories.actor',
-        ])
+        $validated = $request->validate([
+            'q' => ['nullable', 'string', 'max:100'],
+            'status' => ['nullable', 'in:pending,confirmed,cancelled,completed'],
+            'payment_status' => ['nullable', 'in:pending,paid,failed'],
+            'date_from' => ['nullable', 'date'],
+            'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
+        ]);
+
+        $bookings = Booking::query()
+            ->with([
+                'flight.departureAirport',
+                'flight.arrivalAirport',
+                'flight.airline',
+                'passengers',
+                'payment',
+                'histories.actor',
+                'review',
+            ])
             ->where('user_id', Auth::id())
+            ->when(filled($validated['q'] ?? null), function ($query) use ($validated) {
+                $like = '%'.Str::lower(trim($validated['q'])).'%';
+
+                $query->where(function ($search) use ($like) {
+                    $search->whereRaw('LOWER(booking_code) LIKE ?', [$like])
+                        ->orWhereHas('passengers', fn ($passenger) => $passenger
+                            ->whereRaw('LOWER(full_name) LIKE ?', [$like]))
+                        ->orWhereHas('flight.departureAirport', fn ($airport) => $airport
+                            ->whereRaw('LOWER(city) LIKE ?', [$like])
+                            ->orWhereRaw('LOWER(iata_code) LIKE ?', [$like]))
+                        ->orWhereHas('flight.arrivalAirport', fn ($airport) => $airport
+                            ->whereRaw('LOWER(city) LIKE ?', [$like])
+                            ->orWhereRaw('LOWER(iata_code) LIKE ?', [$like]));
+                });
+            })
+            ->when(filled($validated['status'] ?? null), function ($query) use ($validated) {
+                if ($validated['status'] === 'completed') {
+                    $query->whereNotNull('completed_at');
+                } else {
+                    $query->where('status', $validated['status']);
+                }
+            })
+            ->when(filled($validated['payment_status'] ?? null), fn ($query) => $query
+                ->whereHas('payment', fn ($payment) => $payment->where('payment_status', $validated['payment_status'])))
+            ->when(filled($validated['date_from'] ?? null), fn ($query) => $query
+                ->whereHas('flight', fn ($flight) => $flight->whereDate('departure_datetime', '>=', $validated['date_from'])))
+            ->when(filled($validated['date_to'] ?? null), fn ($query) => $query
+                ->whereHas('flight', fn ($flight) => $flight->whereDate('departure_datetime', '<=', $validated['date_to'])))
             ->orderByDesc('created_at')
-            ->get();
+            ->paginate(8)
+            ->withQueryString();
 
         return view('bookings.index', compact('bookings'));
     }
