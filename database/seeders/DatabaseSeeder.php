@@ -14,28 +14,26 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        // Create Admin User
         User::create([
             'name' => 'Admin Z-Airlines',
             'email' => 'admin@zairlines.com',
+            'email_verified_at' => now(),
             'password' => Hash::make('admin123'),
             'role' => 'admin',
         ]);
 
-        // Create Regular User
         User::create([
             'name' => 'John Doe',
             'email' => 'user@example.com',
+            'email_verified_at' => now(),
             'password' => Hash::make('user123'),
             'role' => 'user',
         ]);
 
-        // Create Airlines
         $garuda = Airline::create(['name' => 'Garuda Indonesia', 'code' => 'GA', 'description' => 'Flag carrier Indonesia']);
         $lion = Airline::create(['name' => 'Lion Air', 'code' => 'JT', 'description' => 'Low cost carrier']);
         $batik = Airline::create(['name' => 'Batik Air', 'code' => 'ID', 'description' => 'Full service carrier']);
 
-        // Create Airports
         $cgk = Airport::create(['name' => 'Soekarno-Hatta', 'city' => 'Jakarta', 'country' => 'Indonesia', 'iata_code' => 'CGK']);
         $dps = Airport::create(['name' => 'Ngurah Rai', 'city' => 'Denpasar', 'country' => 'Indonesia', 'iata_code' => 'DPS']);
         $sub = Airport::create(['name' => 'Juanda', 'city' => 'Surabaya', 'country' => 'Indonesia', 'iata_code' => 'SUB']);
@@ -43,12 +41,10 @@ class DatabaseSeeder extends Seeder
         $sin = Airport::create(['name' => 'Changi', 'city' => 'Singapore', 'country' => 'Singapore', 'iata_code' => 'SIN']);
         $dxb = Airport::create(['name' => 'Dubai Intl', 'city' => 'Dubai', 'country' => 'UAE', 'iata_code' => 'DXB']);
 
-        // Create Airplanes
         $boeing1 = Airplane::create(['airline_id' => $garuda->id, 'model' => 'Boeing 737-800', 'registration_number' => 'PK-GMA', 'capacity' => 160]);
         $boeing2 = Airplane::create(['airline_id' => $garuda->id, 'model' => 'Airbus A330-300', 'registration_number' => 'PK-GPI', 'capacity' => 280]);
         $boeing3 = Airplane::create(['airline_id' => $lion->id, 'model' => 'Boeing 737-900ER', 'registration_number' => 'PK-LKR', 'capacity' => 180]);
 
-        // Create Flights
         Flight::create([
             'airline_id' => $garuda->id,
             'airplane_id' => $boeing1->id,

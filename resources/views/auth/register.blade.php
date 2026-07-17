@@ -2,64 +2,68 @@
 
 @section('title', 'Daftar')
 
+@if($recaptchaEnabled)
+    @push('head')
+        <script src="https://www.google.com/recaptcha/api.js?hl=id" async defer></script>
+    @endpush
+@endif
+
 @section('content')
-<div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-white py-12 px-4">
+<div class="min-h-[calc(100vh-4rem)] flex items-center justify-center bg-gradient-to-br from-slate-100 via-blue-50 to-sky-100 py-10 px-4">
     <div class="max-w-md w-full">
-        <div class="bg-white rounded-2xl shadow-xl p-8">
+        <div class="bg-white rounded-3xl shadow-xl border border-white p-6 sm:p-8">
             <div class="text-center mb-8">
-                <div class="flex justify-center mb-4">
-                    <i class="fas fa-plane text-blue-600 text-4xl"></i>
-                </div>
-                <h2 class="text-3xl font-bold text-gray-900">Buat Akun Baru</h2>
-                <p class="text-gray-500 mt-2">Bergabung dengan Z-Airlines</p>
+                <div class="w-14 h-14 mx-auto rounded-2xl bg-blue-600 text-white grid place-items-center shadow-lg shadow-blue-200 mb-4"><i class="fas fa-user-plus text-xl"></i></div>
+                <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900">Buat Akun Penumpang</h2>
+                <p class="text-slate-500 mt-2">Daftar, verifikasi email, lalu mulai booking penerbangan.</p>
             </div>
 
-            <form method="POST" action="{{ route('register') }}" class="space-y-6">
+            <form method="POST" action="{{ route('register') }}" class="space-y-5">
                 @csrf
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Nama Lengkap</label>
-                    <input type="text" name="name" value="{{ old('name') }}" required
-                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="John Doe">
-                    @error('name')
-                        <p class="text-red-500 text-sm mt-1">{{ $message }}</p>
-                    @enderror
+                    <label for="name" class="block text-sm font-semibold text-slate-700 mb-2">Nama Lengkap</label>
+                    <input id="name" type="text" name="name" value="{{ old('name') }}" required autocomplete="name"
+                        class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Nama sesuai identitas">
                 </div>
 
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Email</label>
-                    <input type="email" name="email" value="{{ old('email') }}" required
-                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    <label for="email" class="block text-sm font-semibold text-slate-700 mb-2">Email Aktif</label>
+                    <input id="email" type="email" name="email" value="{{ old('email') }}" required autocomplete="email"
+                        class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="nama@email.com">
-                    @error('email')
-                        <p class="text-red-500 text-sm mt-1">{{ $message }}</p>
-                    @enderror
+                    <p class="text-xs text-slate-500 mt-1">Tautan verifikasi akan dikirim ke email ini.</p>
                 </div>
 
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Password</label>
-                    <input type="password" name="password" required
-                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="Minimal 6 karakter">
-                    @error('password')
-                        <p class="text-red-500 text-sm mt-1">{{ $message }}</p>
-                    @enderror
+                    <label for="password" class="block text-sm font-semibold text-slate-700 mb-2">Password</label>
+                    <input id="password" type="password" name="password" required autocomplete="new-password"
+                        class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Minimal 8 karakter">
                 </div>
 
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Konfirmasi Password</label>
-                    <input type="password" name="password_confirmation" required
-                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    <label for="password_confirmation" class="block text-sm font-semibold text-slate-700 mb-2">Konfirmasi Password</label>
+                    <input id="password_confirmation" type="password" name="password_confirmation" required autocomplete="new-password"
+                        class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="Ulangi password">
                 </div>
 
-                <button type="submit" class="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition">
-                    Daftar
+                @if($recaptchaEnabled)
+                    <div class="overflow-x-auto">
+                        <div class="g-recaptcha" data-sitekey="{{ config('services.recaptcha.site_key') }}"></div>
+                    </div>
+                    @error('captcha')<p class="text-sm text-red-600">{{ $message }}</p>@enderror
+                    @error('g-recaptcha-response')<p class="text-sm text-red-600">{{ $message }}</p>@enderror
+                @endif
+
+                <button type="submit" class="w-full bg-blue-600 text-white py-3.5 rounded-xl font-bold hover:bg-blue-700 transition focus:ring-4 focus:ring-blue-200">
+                    Daftar dan Kirim Verifikasi
                 </button>
             </form>
 
-            <div class="mt-6 text-center">
-                <p class="text-gray-600">Sudah punya akun? <a href="{{ route('login') }}" class="text-blue-600 font-semibold hover:underline">Masuk di sini</a></p>
+            <div class="mt-6 text-center text-sm">
+                <p class="text-slate-600">Sudah punya akun? <a href="{{ route('login') }}" class="text-blue-600 font-bold hover:underline">Masuk di sini</a></p>
             </div>
         </div>
     </div>
