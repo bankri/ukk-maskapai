@@ -37,9 +37,9 @@ class MidtransService
             ],
             'item_details' => [[
                 'id' => $booking->booking_code,
-                'price' => (int) round((float) $booking->flight->price),
-                'quantity' => $booking->total_passengers,
-                'name' => mb_substr('Tiket '.$routeName, 0, 50),
+                'price' => (int) round((float) $payment->amount),
+                'quantity' => 1,
+                'name' => mb_substr('Tiket '.$routeName.' ('.$booking->total_passengers.' pax)', 0, 50),
             ]],
             'customer_details' => [
                 'first_name' => $booking->user->name,
