@@ -9,7 +9,16 @@ class Passenger extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['booking_id', 'full_name', 'gender', 'birth_date', 'passport_number', 'seat_number'];
+    protected $fillable = [
+        'booking_id',
+        'full_name',
+        'gender',
+        'birth_date',
+        'passport_number',
+        'identity_type',
+        'identity_number',
+        'seat_number',
+    ];
 
     protected $casts = [
         'birth_date' => 'date',
