@@ -1,0 +1,67 @@
+services:
+  # Service Aplikasi Laravel (PHP 8.3)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ukk-maskapai-app
+    container_name: maskapai_app
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./:/var/www
+    networks:
+      - maskapai_network
+    # depends_on:
+    #   - db  # Uncomment ini kalau mau pakai database lokal, bukan Supabase
+
+  # Service Web Server (Nginx)
+  nginx:
+    image: nginx:alpine
+    container_name: maskapai_nginx
+    restart: unless-stopped
+    ports:
+      - "8000:80" # Akses via http://localhost:8000
+    volumes:
+      - ./:/var/www
+      - ./docker/nginx/conf.d:/etc/nginx/conf.d
+    networks:
+      - maskapai_network
+    depends_on:
+      - app
+
+  # Service Database (PostgreSQL) - OPSIONAL
+  # Kalau lo tetap mau pakai Supabase, service ini bisa di-comment atau dihapus.
+  # Tapi bagus untuk disimpan sebagai opsi development lokal.
+  db:
+    image: postgres:15-alpine
+    container_name: maskapai_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-laravel}
+      POSTGRES_USER: ${DB_USERNAME:-laravel}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+    ports:
+      - "5432:5432"
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    networks:
+      - maskapai_network
+
+  # Service Node.js (Untuk compile asset frontend seperti Tailwind/Vite)
+  node:
+    image: node:20-alpine
+    container_name: maskapai_node
+    working_dir: /var/www
+    volumes:
+      - ./:/var/www
+    networks:
+      - maskapai_network
+    # command: npm run dev # Uncomment kalau mau auto-compile saat develop
+
+networks:
+  maskapai_network:
+    driver: bridge
+
+volumes:
+  dbdata:
