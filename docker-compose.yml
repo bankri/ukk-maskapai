@@ -1,67 +1,112 @@
 services:
-  # Service Aplikasi Laravel (PHP 8.3)
+  # Laravel Application (PHP-FPM)
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ukk-maskapai-app
-    container_name: maskapai_app
+    image: ${COMPOSE_PROJECT_NAME:-ukk-maskapai}-app:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-ukk-maskapai}_app
     restart: unless-stopped
     working_dir: /var/www
     volumes:
       - ./:/var/www
+      - ./docker/php/local.ini:/usr/local/etc/php/conf.d/local.ini
     networks:
       - maskapai_network
-    # depends_on:
-    #   - db  # Uncomment ini kalau mau pakai database lokal, bukan Supabase
+    environment:
+      - APP_ENV=${APP_ENV:-local}
+      - APP_DEBUG=${APP_DEBUG:-true}
+    depends_on:
+      - redis
 
-  # Service Web Server (Nginx)
+  # Nginx Web Server
   nginx:
     image: nginx:alpine
-    container_name: maskapai_nginx
+    container_name: ${COMPOSE_PROJECT_NAME:-ukk-maskapai}_nginx
     restart: unless-stopped
     ports:
-      - "8000:80" # Akses via http://localhost:8000
+      - "${NGINX_PORT:-8000}:80"
     volumes:
       - ./:/var/www
       - ./docker/nginx/conf.d:/etc/nginx/conf.d
+      - ./docker/nginx/logs:/var/log/nginx
     networks:
       - maskapai_network
     depends_on:
       - app
 
-  # Service Database (PostgreSQL) - OPSIONAL
-  # Kalau lo tetap mau pakai Supabase, service ini bisa di-comment atau dihapus.
-  # Tapi bagus untuk disimpan sebagai opsi development lokal.
+  # PostgreSQL Database (Optional - for local development)
   db:
     image: postgres:15-alpine
-    container_name: maskapai_db
+    container_name: ${COMPOSE_PROJECT_NAME:-ukk-maskapai}_db
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_DATABASE:-laravel}
       POSTGRES_USER: ${DB_USERNAME:-laravel}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+      POSTGRES_HOST_AUTH_METHOD: trust
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - dbdata:/var/lib/postgresql/data
+      - ./docker/db/init:/docker-entrypoint-initdb.d
     networks:
       - maskapai_network
+    profiles:
+      - with-db
 
-  # Service Node.js (Untuk compile asset frontend seperti Tailwind/Vite)
+  # Redis Cache
+  redis:
+    image: redis:alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-ukk-maskapai}_redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    networks:
+      - maskapai_network
+    command: redis-server --appendonly yes
+
+  # Node.js for Frontend Build
   node:
     image: node:20-alpine
-    container_name: maskapai_node
+    container_name: ${COMPOSE_PROJECT_NAME:-ukk-maskapai}_node
     working_dir: /var/www
     volumes:
       - ./:/var/www
     networks:
       - maskapai_network
-    # command: npm run dev # Uncomment kalau mau auto-compile saat develop
+    profiles:
+      - build
+    command: sh -c "npm install && npm run build"
+
+  # Laravel Queue Worker
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME:-ukk-maskapai}_worker
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./:/var/www
+    networks:
+      - maskapai_network
+    command: php artisan queue:work --sleep=3 --tries=3 --max-time=3600
+    depends_on:
+      - redis
+      - app
 
 networks:
   maskapai_network:
     driver: bridge
+    name: ${COMPOSE_PROJECT_NAME:-ukk-maskapai}_network
 
 volumes:
   dbdata:
+    driver: local
+    name: ${COMPOSE_PROJECT_NAME:-ukk-maskapai}_dbdata
+  redisdata:
+    driver: local
+    name: ${COMPOSE_PROJECT_NAME:-ukk-maskapai}_redisdata
