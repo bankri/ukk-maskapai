@@ -1,4 +1,7 @@
-FROM php:8.3-cli
+FROM php:8.3-fpm
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -7,49 +10,54 @@ RUN apt-get update && apt-get install -y \
     libpng-dev \
     libonig-dev \
     libxml2-dev \
-    libzip-dev \
     libpq-dev \
     zip \
     unzip \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
+    libfreetype6-dev \
+    libjpeg62-turbo-dev \
+    libicu-dev \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install pdo_pgsql pgsql mbstring exif pcntl bcmath gd intl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
-
-# Install PHP extensions
-RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip pdo_pgsql
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
+# Set working directory
 WORKDIR /var/www
 
 # Copy application files
 COPY . /var/www
 
-# Install composer dependencies
+# Create system user for Laravel (security)
+RUN useradd -G www-data,root -u 1000 -d /home/app app || true
+RUN mkdir -p /home/app/.composer && \
+    chown -R app:app /home/app
+
+# Install PHP dependencies
 RUN composer install --no-dev --optimize-autoloader --no-interaction
 
-# Build frontend assets
-RUN npm ci --loglevel=error && npm run build --if-present
+# Generate application key if not exists
+RUN if [ ! -f .env ]; then cp .env.example .env; fi
+RUN if [ -z "$(php artisan key:generate --show)" ]; then php artisan key:generate; fi
 
-# Create storage directories and set permissions
-RUN mkdir -p storage/framework/{sessions,views,cache} storage/logs bootstrap/cache && \
-    chmod -R 777 storage bootstrap/cache
+# Clear and cache config
+RUN php artisan config:clear
+RUN php artisan route:clear
+RUN php artisan view:clear
 
-# Create symlink for storage
-RUN php artisan storage:link 2>/dev/null || true
+# Set proper permissions
+RUN chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache
+RUN chmod -R 775 /var/www/storage /var/www/bootstrap/cache
 
-# Run migrations (force for production)
-RUN php artisan migrate --force --no-interaction 2>/dev/null || true
+# Copy entrypoint script
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# Clear cache (optional)
-RUN php artisan config:clear || true
-RUN php artisan cache:clear || true
-RUN php artisan view:clear || true
-RUN php artisan route:clear || true
+# Expose port 9000 for PHP-FPM
+EXPOSE 9000
 
-EXPOSE 8000
-
-# Start server - use sh -c for proper env var expansion
-CMD ["sh", "-c", "php artisan serve --host=0.0.0.0 --port=${PORT:-8000}"]
+# Set entrypoint
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["php-fpm"]
